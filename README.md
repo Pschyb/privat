@@ -18,16 +18,21 @@ ROS 2 QoS settings.
 ## Installation
 
 ```bash
+sudo apt update
+sudo apt install -y python3-colcon-common-extensions python3-pip python3-rosdep
+
 mkdir -p ~/ros2_ws/src
 cd ~/ros2_ws/src
 git clone https://github.com/Pschyb/privat.git rose2
-cd rose2
-
-python3 -m pip install --user -r requirements-humble.txt
 
 cd ~/ros2_ws
 source /opt/ros/humble/setup.bash
-rosdep install --from-paths src --ignore-src -r -y
+if [[ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]]; then
+  sudo rosdep init
+fi
+rosdep update --rosdistro humble
+rosdep install --from-paths src --ignore-src --rosdistro humble -r -y
+python3 -m pip install --user -r src/rose2/requirements-humble.txt
 colcon build --symlink-install --packages-select rose2
 source install/setup.bash
 ```
