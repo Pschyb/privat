@@ -61,6 +61,16 @@ def test_rose2_hough_receives_walls_instead_of_free_space(monkeypatch):
     np.testing.assert_array_equal(walls, np.array([[0, 0, 1, 1]]))
 
 
+def test_cell_dbscan_uses_keyword_only_sklearn_api():
+    distance_matrix = np.array([[0.0, 1.0], [1.0, 0.0]])
+
+    labels = layout.clustering_dbscan_cells(
+        eps=0.85, min_samples=1, X=distance_matrix
+    )
+
+    np.testing.assert_array_equal(labels, np.array([0, 1]))
+
+
 def test_grid_wrapper_uses_python3_integer_coordinates():
     wrapped = MyGridMap(make_grid())
     assert wrapped.getCoordinates(3) == (1, 1)

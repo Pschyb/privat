@@ -291,7 +291,9 @@ def clustering_dbscan_cells(eps, min_samples, X):
 	# same neighborhood), min_samples (number of samples in a neighborhood for point to be considered a core point)
 	# and X (1-local affinity matrix among cells).
 
-	af = DBSCAN(eps, min_samples, metric="precomputed").fit(X)
+	af = DBSCAN(
+		eps=eps, min_samples=min_samples, metric="precomputed"
+	).fit(X)
 	return af.labels_
 
 
