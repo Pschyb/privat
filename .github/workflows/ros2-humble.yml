@@ -19,6 +19,20 @@ jobs:
         with:
           required-ros-distributions: humble
 
+      # Current Humble Debian packages can install Python modules below
+      # /opt/ros/humble/local without exporting that directory.  Add both
+      # supported install layouts before action-ros-ci invokes ament tests.
+      - name: Configure ROS 2 Humble Python path
+        shell: bash
+        run: |
+          python_version="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+          ros_python_paths="/opt/ros/humble/local/lib/python${python_version}/dist-packages:/opt/ros/humble/lib/python${python_version}/site-packages"
+          if [[ -n "${PYTHONPATH:-}" ]]; then
+            ros_python_paths="${ros_python_paths}:${PYTHONPATH}"
+          fi
+          echo "PYTHONPATH=${ros_python_paths}" >> "${GITHUB_ENV}"
+          PYTHONPATH="${ros_python_paths}" python3 -c 'import ament_cmake_test'
+
       - name: Install pinned Python dependencies
         run: python3 -m pip install --user -r requirements-humble.txt
 
