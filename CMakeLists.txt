@@ -48,8 +48,15 @@ ament_export_dependencies(rosidl_default_runtime)
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
-  ament_add_pytest_test(test_grid_conversion test/test_grid_conversion.py)
-  ament_add_pytest_test(test_node_imports test/test_node_imports.py)
+  set(rose2_test_pythonpath "${CMAKE_INSTALL_PREFIX}/${PYTHON_INSTALL_DIR}")
+  ament_add_pytest_test(
+    test_grid_conversion test/test_grid_conversion.py
+    APPEND_ENV "PYTHONPATH=${rose2_test_pythonpath}"
+  )
+  ament_add_pytest_test(
+    test_node_imports test/test_node_imports.py
+    APPEND_ENV "PYTHONPATH=${rose2_test_pythonpath}"
+  )
 endif()
 
 ament_package()
