@@ -120,7 +120,9 @@ class FeatureExtractorROSE2(Node):
         self._set_status("processing")
         try:
             self.input_features = features
-            clean_map = mu.from_occupancy_grid_to_image(features.clean_map)
+            clean_map = mu.from_structural_occupancy_grid_to_image(
+                features.clean_map
+            )
             original_map = mu.from_occupancy_grid_to_image(features.original_map)
             self.algorithm_parameters.comp = list(features.directions)
 

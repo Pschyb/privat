@@ -31,6 +31,23 @@ def from_occupancy_grid_to_image(occupancy_grid):
     return image
 
 
+def from_structural_occupancy_grid_to_image(occupancy_grid):
+    """Convert ROSE's clean grid to the binary image expected by ROSE2.
+
+    The original ROS 1 pipeline transported ``analysed_map`` as raw byte
+    values: structural wall pixels were ``1`` and every other pixel was
+    ``0``.  The ROS 2 port publishes a standards-compliant OccupancyGrid
+    instead, where those wall pixels are occupied (``100``).  Converting that
+    grid with :func:`from_occupancy_grid_to_image` would invert the algorithm's
+    input and make HoughLinesP process the free-space background.  Preserve
+    the original ROSE2 semantics explicitly here.
+    """
+    height = int(occupancy_grid.info.height)
+    width = int(occupancy_grid.info.width)
+    data = np.asarray(occupancy_grid.data, dtype=np.int16).reshape(height, width)
+    return (data >= 50).astype(np.uint8)
+
+
 def from_image_to_occupancy_grid(image, origin, resolution, stamp=None):
     """Convert a binary wall image to a valid trinary OccupancyGrid.
 
@@ -58,8 +75,8 @@ def fromOccupancyGridToImg(occupancy_grid):
 
 
 def fromOccupancyGridRawToImg(occupancy_grid):
-    """Backward-compatible alias; ROS 2 always uses valid trinary grids."""
-    return from_occupancy_grid_to_image(occupancy_grid)
+    """Backward-compatible alias for ROSE's structural-map conversion."""
+    return from_structural_occupancy_grid_to_image(occupancy_grid)
 
 
 def fromImgMapToOccupancyGridRaw(image, origin, resolution):
