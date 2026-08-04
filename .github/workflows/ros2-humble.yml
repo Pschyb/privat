@@ -49,6 +49,10 @@ jobs:
           test -f /opt/ros/humble/share/ament_index/resource_index/rosidl_typesupport_c/rosidl_typesupport_fastrtps_c
           python3 -c 'import rosidl_cmake'
 
+          if [[ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]]; then
+            sudo rosdep init
+          fi
+          rosdep update --rosdistro humble
           rosdep install --from-paths . --ignore-src --rosdistro humble -r -y
           colcon build --symlink-install --packages-select rose2 --event-handlers console_cohesion+
           colcon test --packages-select rose2 --event-handlers console_direct+
