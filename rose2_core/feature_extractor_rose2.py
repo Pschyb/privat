@@ -6,6 +6,7 @@ import warnings
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from std_msgs.msg import String
 from visualization_msgs.msg import Marker, MarkerArray
 
 from rose2.msg import ROSE2Features, ROSEFeatures
@@ -26,7 +27,7 @@ class FeatureExtractorROSE2(Node):
     def __init__(self):
         super().__init__("rose2")
         defaults = {
-            "pub_once": True,
+            "pub_once": False,
             "spatial_clustering_threshold": 5.0,
             "lines_threshold": 0.0,
             "lines_distance": 20.0,
@@ -85,6 +86,9 @@ class FeatureExtractorROSE2(Node):
         self.feature_publisher = self.create_publisher(
             ROSE2Features, "features_ROSE2", TRANSIENT_QOS
         )
+        self.feature_publisher_lowercase = self.create_publisher(
+            ROSE2Features, "features_rose2", TRANSIENT_QOS
+        )
         self.line_publisher = self.create_publisher(
             Marker, "extended_lines", TRANSIENT_QOS
         )
@@ -94,10 +98,15 @@ class FeatureExtractorROSE2(Node):
         self.room_publisher = self.create_publisher(
             MarkerArray, "rooms", TRANSIENT_QOS
         )
+        self.status_publisher = self.create_publisher(
+            String, "rose2/status", TRANSIENT_QOS
+        )
         self.service = self.create_service(
             ROSE2, "ROSE2Srv", self._service_callback
         )
         self.timer = self.create_timer(1.0, self._publish_if_ready)
+        self.status = "waiting_for_rose_features"
+        self._publish_status()
         self.get_logger().info("[ROSE2] waiting for ROSE features...")
 
     def _features_callback(self, features):
@@ -108,6 +117,7 @@ class FeatureExtractorROSE2(Node):
             self.get_logger().warning("[ROSE2] features ignored while processing")
             return False
         self.processing = True
+        self._set_status("processing")
         try:
             self.input_features = features
             clean_map = mu.from_occupancy_grid_to_image(features.clean_map)
@@ -125,9 +135,25 @@ class FeatureExtractorROSE2(Node):
             )
             self._make_messages(algorithm)
             self.publish_pending = True
-            self.get_logger().info("[ROSE2] lines, edges and rooms computed")
+            line_count = len(self.output_features.lines)
+            edge_count = len(self.output_features.edges)
+            room_count = len(self.output_features.rooms)
+            self._set_status(
+                f"ready: {room_count} rooms, {edge_count} edges, "
+                f"{line_count} extended lines"
+            )
+            message = (
+                f"[ROSE2] computed {room_count} rooms, {edge_count} edges and "
+                f"{line_count} extended lines; publishing /rooms, "
+                "/features_rose2 and /features_ROSE2"
+            )
+            if room_count:
+                self.get_logger().info(message)
+            else:
+                self.get_logger().warning(message)
             return True
         except Exception as error:  # Keep a bad map from terminating the node.
+            self._set_status(f"error: {error}")
             self.get_logger().error(f"[ROSE2] processing failed: {error}")
             return False
         finally:
@@ -165,13 +191,22 @@ class FeatureExtractorROSE2(Node):
             response.features = self.output_features
         return response
 
+    def _publish_status(self):
+        self.status_publisher.publish(String(data=self.status))
+
+    def _set_status(self, status):
+        self.status = status
+        self._publish_status()
+
     def _publish_if_ready(self):
+        self._publish_status()
         if not self.publish_pending or self.output_features is None:
             return
         self.edge_publisher.publish(self.edge_markers)
         self.line_publisher.publish(self.line_marker)
         self.room_publisher.publish(self.room_markers)
         self.feature_publisher.publish(self.output_features)
+        self.feature_publisher_lowercase.publish(self.output_features)
         if self.pub_once:
             self.publish_pending = False
 

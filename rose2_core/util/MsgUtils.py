@@ -1,13 +1,17 @@
 """Conversion and visualization helpers for ROSE2 ROS messages."""
 
 import array
+import colorsys
 import pickle
 import random
+from copy import deepcopy
 
 import numpy as np
 from geometry_msgs.msg import Point, Point32, Polygon, PolygonStamped, Quaternion
 from nav_msgs.msg import MapMetaData, OccupancyGrid
 from scipy.spatial.transform import Rotation
+from shapely.geometry.polygon import orient
+from shapely.ops import triangulate
 from std_msgs.msg import Header
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -100,7 +104,10 @@ def _base_marker(namespace, marker_id, marker_type, origin, resolution):
     marker.id = int(marker_id)
     marker.type = marker_type
     marker.action = Marker.ADD
-    marker.pose = origin
+    marker.pose = deepcopy(origin)
+    orientation = marker.pose.orientation
+    if not any((orientation.x, orientation.y, orientation.z, orientation.w)):
+        orientation.w = 1.0
     marker.scale.x = float(resolution)
     marker.color.a = 1.0
     return marker
@@ -138,18 +145,120 @@ def make_lines_marker(lines, origin, resolution):
     return marker
 
 
-def make_room_marker(room, marker_id, origin, resolution):
-    marker = _base_marker("rooms", marker_id, Marker.LINE_STRIP, origin, resolution)
-    marker.scale.x = max(float(resolution) * 2.0, 0.03)
-    color = random.Random(10_000 + marker_id)
-    marker.color.r = color.random()
-    marker.color.g = color.random()
-    marker.color.b = color.random()
-    x_values, y_values = room.exterior.coords.xy
-    marker.points = [
-        Point(x=float(x * resolution), y=float(y * resolution), z=0.02)
-        for x, y in zip(x_values, y_values)
+def _room_color(marker_id):
+    """Return a bright, deterministic color for one room."""
+    hue = (0.02 + marker_id * 0.618033988749895) % 1.0
+    return colorsys.hsv_to_rgb(hue, 0.72, 1.0)
+
+
+def _set_room_color(marker, marker_id, alpha):
+    marker.color.r, marker.color.g, marker.color.b = _room_color(marker_id)
+    marker.color.a = float(alpha)
+
+
+def _room_polygons(room):
+    geometry = room if room.is_valid else room.buffer(0)
+    if geometry.is_empty:
+        return []
+    if geometry.geom_type == "Polygon":
+        return [geometry]
+    return [
+        part
+        for part in getattr(geometry, "geoms", [])
+        if part.geom_type == "Polygon" and not part.is_empty
     ]
+
+
+def _room_triangles(room):
+    for polygon in _room_polygons(room):
+        for triangle in triangulate(polygon):
+            if triangle.area > 0.0 and polygon.covers(triangle):
+                yield triangle
+
+
+def make_room_fill_marker(room, marker_id, origin, resolution):
+    marker = _base_marker(
+        "rooms_fill", marker_id, Marker.TRIANGLE_LIST, origin, resolution
+    )
+    marker.scale.x = 1.0
+    marker.scale.y = 1.0
+    marker.scale.z = 1.0
+    _set_room_color(marker, marker_id, 0.45)
+    for triangle in _room_triangles(room):
+        triangle = orient(triangle, sign=1.0)
+        marker.points.extend(
+            Point(x=float(x * resolution), y=float(y * resolution), z=0.025)
+            for x, y in list(triangle.exterior.coords)[:3]
+        )
+    return marker
+
+
+def make_room_marker(room, marker_id, origin, resolution):
+    marker = _base_marker(
+        "rooms_outline", marker_id, Marker.LINE_LIST, origin, resolution
+    )
+    marker.scale.x = max(float(resolution) * 2.0, 0.03)
+    _set_room_color(marker, marker_id, 1.0)
+    for polygon in _room_polygons(room):
+        for ring in [polygon.exterior, *polygon.interiors]:
+            coordinates = list(ring.coords)
+            for start, end in zip(coordinates[:-1], coordinates[1:]):
+                marker.points.extend(
+                    [
+                        Point(
+                            x=float(start[0] * resolution),
+                            y=float(start[1] * resolution),
+                            z=0.04,
+                        ),
+                        Point(
+                            x=float(end[0] * resolution),
+                            y=float(end[1] * resolution),
+                            z=0.04,
+                        ),
+                    ]
+                )
+    return marker
+
+
+def _local_point_to_world(origin, x, y, resolution, z):
+    offset = np.array([x * resolution, y * resolution, z], dtype=float)
+    quaternion = np.array(
+        [
+            origin.orientation.x,
+            origin.orientation.y,
+            origin.orientation.z,
+            origin.orientation.w,
+        ],
+        dtype=float,
+    )
+    norm = np.linalg.norm(quaternion)
+    if norm > 0.0:
+        offset = Rotation.from_quat(quaternion / norm).apply(offset)
+    return Point(
+        x=float(origin.position.x + offset[0]),
+        y=float(origin.position.y + offset[1]),
+        z=float(origin.position.z + offset[2]),
+    )
+
+
+def make_room_label_marker(room, marker_id, origin, resolution):
+    marker = _base_marker(
+        "rooms_label", marker_id, Marker.TEXT_VIEW_FACING, origin, resolution
+    )
+    polygons = _room_polygons(room)
+    if not polygons:
+        return marker
+    center = max(polygons, key=lambda polygon: polygon.area).representative_point()
+    marker.pose.position = _local_point_to_world(
+        origin, center.x, center.y, resolution, 0.10
+    )
+    marker.pose.orientation = Quaternion(w=1.0)
+    marker.scale.z = max(float(resolution) * 10.0, 0.40)
+    marker.color.r = 1.0
+    marker.color.g = 1.0
+    marker.color.b = 1.0
+    marker.color.a = 1.0
+    marker.text = f"Room {marker_id + 1}"
     return marker
 
 
@@ -157,7 +266,15 @@ def make_room_marker_array(rooms, origin, resolution):
     result = MarkerArray()
     result.markers.append(delete_all_marker())
     for marker_id, room in enumerate(rooms or []):
-        result.markers.append(make_room_marker(room, marker_id, origin, resolution))
+        fill = make_room_fill_marker(room, marker_id, origin, resolution)
+        outline = make_room_marker(room, marker_id, origin, resolution)
+        label = make_room_label_marker(room, marker_id, origin, resolution)
+        if fill.points:
+            result.markers.append(fill)
+        if outline.points:
+            result.markers.append(outline)
+        if label.text:
+            result.markers.append(label)
     return result
 
 

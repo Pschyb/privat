@@ -65,7 +65,7 @@ Visualization Manager:
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
-      Name: Rooms
+      Name: Rooms (filled and labelled)
       Topic:
         Depth: 1
         Durability Policy: Transient Local

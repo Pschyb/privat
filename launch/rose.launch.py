@@ -10,6 +10,7 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
     rviz = LaunchConfiguration("rviz")
     pub_once = LaunchConfiguration("pub_once")
+    rose2_pub_once = LaunchConfiguration("rose2_pub_once")
     filter_level = LaunchConfiguration("filter")
     use_voronoi = LaunchConfiguration("use_voronoi")
     output_directory = LaunchConfiguration("output_directory")
@@ -18,6 +19,7 @@ def generate_launch_description():
         [
             DeclareLaunchArgument("rviz", default_value="true"),
             DeclareLaunchArgument("pub_once", default_value="true"),
+            DeclareLaunchArgument("rose2_pub_once", default_value="false"),
             DeclareLaunchArgument("filter", default_value="0.18"),
             DeclareLaunchArgument("use_voronoi", default_value="false"),
             DeclareLaunchArgument(
@@ -42,7 +44,9 @@ def generate_launch_description():
                 output="screen",
                 parameters=[
                     {
-                        "pub_once": ParameterValue(pub_once, value_type=bool),
+                        "pub_once": ParameterValue(
+                            rose2_pub_once, value_type=bool
+                        ),
                         "spatial_clustering_threshold": 5.0,
                         "lines_threshold": 0.0,
                         "lines_distance": 20.0,

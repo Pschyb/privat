@@ -57,6 +57,10 @@ if(BUILD_TESTING)
     test_node_imports test/test_node_imports.py
     APPEND_ENV "PYTHONPATH=${rose2_test_pythonpath}"
   )
+  ament_add_pytest_test(
+    test_room_visualization test/test_room_visualization.py
+    APPEND_ENV "PYTHONPATH=${rose2_test_pythonpath}"
+  )
 endif()
 
 ament_package()
