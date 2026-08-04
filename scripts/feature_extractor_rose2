@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+from rose2_core.feature_extractor_rose2 import main
+
+
+if __name__ == "__main__":
+    main()
