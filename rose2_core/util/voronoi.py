@@ -7,11 +7,10 @@ import matplotlib.colors
 import cv2
 import matplotlib.pyplot as plt
 import networkx as nx
-import skan
 import numpy as np
 from PIL import Image, ImageDraw
 from skan.csr import skeleton_to_csgraph
-from skimage import io, img_as_bool, img_as_uint, segmentation, img_as_ubyte
+from skimage import img_as_bool, img_as_uint, segmentation, img_as_ubyte
 from skimage.morphology import skeletonize
 from skimage.util import invert
 
@@ -135,6 +134,25 @@ def removed_isolated_cycles(graph):
     voronoi_graph.remove_nodes_from(list(nx.isolates(voronoi_graph)))
     # rospy.loginfo('nodes after removed isolated:', len(voronoi_graph.nodes))
     return voronoi_graph
+
+
+def skeleton_to_networkx_graph(skeleton):
+    """Convert a skeleton while normalizing Skan's coordinate layout."""
+    pixel_graph, pixel_coordinates = skeleton_to_csgraph(skeleton)
+    if isinstance(pixel_coordinates, tuple):
+        coordinates = np.column_stack(pixel_coordinates)
+    else:
+        coordinates = np.asarray(pixel_coordinates)
+        expected_shape = (pixel_graph.shape[0], skeleton.ndim)
+        if coordinates.shape != expected_shape:
+            coordinates = coordinates.T
+        if coordinates.shape != expected_shape:
+            raise ValueError(
+                "Unexpected skeleton coordinate shape: "
+                f"{coordinates.shape}, expected {expected_shape}"
+            )
+    graph = nx.from_scipy_sparse_array(pixel_graph, edge_attribute='weight')
+    return graph, coordinates
 
 
 def plot_voronoi(coordinates, voronoi_graph, ax, label, is_labelled, name, filepath):
@@ -305,9 +323,7 @@ def compute_voronoi_graph(origin, param_obj, only_graph, name, bormann, filepath
     im = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
     im = cv2.threshold(im, 230, 255, cv2.THRESH_BINARY)[1]
     im = cv2.bitwise_not(im)
-    cv2.imwrite('tmp.png', im, [cv2.IMWRITE_PNG_COMPRESSION,1])
-    initial_map = img_as_bool(io.imread('tmp.png'))
-    os.remove('tmp.png')
+    initial_map = img_as_bool(im)
 
     # Invert image
     input_skeleton = invert(initial_map)
@@ -315,11 +331,8 @@ def compute_voronoi_graph(origin, param_obj, only_graph, name, bormann, filepath
     # ------------------------------SKELETON-----------------------------------
 
     skeleton = skeletonize(input_skeleton)
-    skeleton_object = skan.csr.Skeleton(skeleton)
-    pixel_graph, coordinates, degrees = skeleton_to_csgraph(skeleton)
+    graph, coordinates = skeleton_to_networkx_graph(skeleton)
     # -------------------------------GRAPH-------------------------------------
-
-    graph = nx.from_scipy_sparse_array(pixel_graph, edge_attribute='weight')
 
     rospy.loginfo('[rose2] edges initial: {}'.format(len(graph.edges)))
     rospy.loginfo('[rose2] nodes initial: {}'.format(len(graph.nodes)))

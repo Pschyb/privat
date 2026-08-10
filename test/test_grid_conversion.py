@@ -5,7 +5,7 @@ from nav_msgs.msg import OccupancyGrid
 
 from rose2_core.my_grid_map import MyGridMap
 from rose2_core.rose_v2_repo.parameters import ParameterObj
-from rose2_core.util import layout
+from rose2_core.util import layout, voronoi
 from rose2_core.util.MsgUtils import (
     from_image_to_occupancy_grid,
     from_occupancy_grid_to_image,
@@ -69,6 +69,47 @@ def test_cell_dbscan_uses_keyword_only_sklearn_api():
     )
 
     np.testing.assert_array_equal(labels, np.array([0, 1]))
+
+
+def test_voronoi_graph_uses_current_two_value_skan_api():
+    skeleton = np.zeros((3, 3), dtype=bool)
+    skeleton[1, :] = True
+
+    graph, coordinates = voronoi.skeleton_to_networkx_graph(skeleton)
+
+    assert graph.number_of_nodes() == 3
+    assert graph.number_of_edges() == 2
+    assert coordinates.shape == (3, 2)
+    np.testing.assert_array_equal(
+        coordinates, np.array([[1, 0], [1, 1], [1, 2]])
+    )
+
+
+def test_voronoi_preprocessing_does_not_write_a_shared_temp_file(
+    tmp_path, monkeypatch
+):
+    image = np.zeros((9, 9), dtype=np.uint8)
+    image[4, 2:7] = 255
+    image_path = tmp_path / "metric_map.png"
+    assert cv2.imwrite(str(image_path), image)
+
+    def reject_temp_file(*args, **kwargs):
+        raise AssertionError("Voronoi preprocessing must stay in memory")
+
+    monkeypatch.setattr(voronoi.cv2, "imwrite", reject_temp_file)
+    parameters = ParameterObj()
+    parameters.blur = 1
+    graph, coordinates = voronoi.compute_voronoi_graph(
+        str(image_path),
+        parameters,
+        False,
+        "",
+        parameters.bormann,
+        filepath=str(tmp_path) + "/",
+    )
+
+    assert coordinates.shape[1] == 2
+    assert graph.number_of_nodes() >= 0
 
 
 def test_grid_wrapper_uses_python3_integer_coordinates():
