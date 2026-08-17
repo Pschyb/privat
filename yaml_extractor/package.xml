@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>yaml_extractor</name>
+  <version>0.1.0</version>
+  <description>
+    Export ROSE2 room polygons and map metadata as a reusable YAML file.
+  </description>
+
+  <maintainer email="Pschyb@users.noreply.github.com">Paul</maintainer>
+  <license>GPL-3.0-only</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>python3-shapely</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+
+  <!-- The Python node imports generated rose2.msg interfaces during tests
+       and at runtime, so expose rose2 throughout the package lifecycle. -->
+  <depend>rose2</depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
