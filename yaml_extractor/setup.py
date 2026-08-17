@@ -27,6 +27,10 @@ setup(
     maintainer_email="Pschyb@users.noreply.github.com",
     description="Export ROSE2 room segmentation results to YAML.",
     license="GPL-3.0-only",
+    # Colcon selects its Pytest test step from this setup metadata. Without
+    # it, ament_python falls back to unittest discovery and silently reports
+    # zero tests for the function-style tests in yaml_extractor/test.
+    tests_require=["pytest"],
     entry_points={
         "console_scripts": [
             "yaml_extractor = yaml_extractor.live_segmented_map_exporter:main",
