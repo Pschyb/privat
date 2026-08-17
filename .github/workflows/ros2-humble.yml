@@ -55,6 +55,8 @@ jobs:
           rosdep update --rosdistro humble
           rosdep install --from-paths . --ignore-src --rosdistro humble -r -y
           colcon build --symlink-install --packages-select rose2 yaml_extractor --event-handlers console_cohesion+
+          set +u
           source install/setup.bash
+          set -u
           colcon test --packages-select rose2 yaml_extractor --event-handlers console_direct+
           colcon test-result --verbose
