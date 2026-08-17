@@ -16,10 +16,12 @@
   <exec_depend>python3-shapely</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>rclpy</exec_depend>
-  <exec_depend>rose2</exec_depend>
   <exec_depend>std_srvs</exec_depend>
 
-  <test_depend>ament_pytest</test_depend>
+  <!-- The Python node imports generated rose2.msg interfaces during tests
+       and at runtime, so expose rose2 throughout the package lifecycle. -->
+  <depend>rose2</depend>
+
   <test_depend>python3-pytest</test_depend>
 
   <export>
