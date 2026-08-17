@@ -38,7 +38,7 @@ jobs:
       - name: Install pinned Python dependencies
         run: python3 -m pip install --user -r requirements-humble.txt
 
-      - name: Build and test the package
+      - name: Build and test the packages
         shell: bash
         run: |
           set -eo pipefail
@@ -54,6 +54,6 @@ jobs:
           fi
           rosdep update --rosdistro humble
           rosdep install --from-paths . --ignore-src --rosdistro humble -r -y
-          colcon build --symlink-install --packages-select rose2 --event-handlers console_cohesion+
-          colcon test --packages-select rose2 --event-handlers console_direct+
+          colcon build --symlink-install --packages-select rose2 yaml_extractor --event-handlers console_cohesion+
+          colcon test --packages-select rose2 yaml_extractor --event-handlers console_direct+
           colcon test-result --verbose

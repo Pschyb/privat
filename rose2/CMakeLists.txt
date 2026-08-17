@@ -39,8 +39,15 @@ install(PROGRAMS
 
 install(DIRECTORY
   launch
-  maps
   rviz
+  DESTINATION share/${PROJECT_NAME}
+)
+
+# Maps are shared repository data and intentionally remain at the monorepo
+# root so existing source paths such as ``.../src/rose2/maps/...`` keep
+# working after the repository becomes a multi-package project.
+install(DIRECTORY
+  "${CMAKE_CURRENT_SOURCE_DIR}/../maps"
   DESTINATION share/${PROJECT_NAME}
 )
 

@@ -1,4 +1,4 @@
-# ROSE2 for ROS 2 Humble
+# ROSE2 and YAML Extractor for ROS 2 Humble
 
 This repository contains a ROS 2 Humble port of
 [aislabunimi/ROSE2](https://github.com/aislabunimi/ROSE2). ROSE removes
@@ -7,7 +7,20 @@ directions. ROSE2 then extracts extended wall lines, edges and room polygons.
 
 The original algorithms and GPL-3.0 license are preserved. ROS integration is
 implemented natively with `rclpy`, ROS 2 interfaces, Python launch files and
-ROS 2 QoS settings.
+ROS 2 QoS settings. The repository is a ROS 2 multi-package repository:
+
+```text
+privat/
+├── rose2/             # ROSE/ROSE2 algorithm, interfaces and RViz output
+├── yaml_extractor/    # ROSE2 room-polygon YAML exporter
+├── maps/              # Shared source maps (existing paths remain valid)
+└── requirements-humble.txt
+```
+
+Keeping the two packages as siblings lets `colcon` discover both packages.
+Nesting `yaml_extractor` below the old package root would make package
+discovery unreliable because the repository root was itself already a ROS
+package.
 
 ## Supported platform
 
@@ -33,7 +46,7 @@ fi
 rosdep update --rosdistro humble
 rosdep install --from-paths src --ignore-src --rosdistro humble -r -y
 python3 -m pip install --user -r src/rose2/requirements-humble.txt
-colcon build --symlink-install --packages-select rose2
+colcon build --symlink-install --packages-select rose2 yaml_extractor
 source install/setup.bash
 ```
 
@@ -102,6 +115,60 @@ message. Each room contains fill triangles, an outline and a text label. The
 external `jsk_recognition_msgs` and `jsk_rviz_plugins` dependencies are
 therefore no longer required.
 
+## Export room segmentation to YAML
+
+`yaml_extractor` consumes the actual interfaces of this port:
+
+- `/features_ROSE2` (`rose2/msg/ROSE2Features`) supplies the room polygons.
+- `/features_ROSE` supplies the exact source OccupancyGrid metadata.
+- `/map` is a fallback source for the map metadata.
+
+Start it before or after ROSE2. All subscriptions use reliable,
+transient-local QoS:
+
+```bash
+ros2 launch yaml_extractor yaml_extractor.launch.py \
+  map_yaml:=/home/paul/rose2_ws/src/rose2/maps/Freiburg_Building_079/map15.yaml \
+  output_yaml:=/home/paul/rose2_ws/src/rose2/maps/Freiburg_Building_079/map15_segments_from_rose2.yaml
+```
+
+With `write_once:=true` (default), the file is written once as soon as both
+the ROSE2 polygons and map metadata have arrived. Set `auto_save:=false` for
+manual saving:
+
+```bash
+ros2 service call /rose2_yaml_extractor/save std_srvs/srv/Trigger '{}'
+```
+
+The resulting document retains the schema of the original exporter:
+
+```yaml
+map_yaml: /path/to/map15.yaml
+origin: [-20.0, -20.0, 0.0]
+resolution: 0.05
+segments:
+  - id: 1
+    area_cells: 1234
+    area_m2: 3.085
+    center_px: [320.5, 140.25]
+    center_m: [-3.975, -12.9875]
+    corners_m: []
+    polygon_m: []
+    room_name: unknown
+    objects: []
+subsegment_tile_size_m: 0.0
+segmentation_method: rose2_live
+source_topics:
+  features_topic: /features_ROSE2
+  rose_features_topic: /features_ROSE
+  map_topic: /map
+```
+
+Room area is derived directly from the ROSE2 Shapely polygon and rounded to
+grid cells, matching the original `area_cells`/`area_m2` schema. Coordinates
+are transformed according to the OccupancyGrid origin and yaw; unlike an
+image export, the ROS 2 polygon y-coordinate must not be flipped.
+
 ## Parameters
 
 Parameters can be supplied through the launch file or directly with
@@ -118,6 +185,13 @@ Parameters can be supplied through the launch file or directly with
 | `rose2` | `edges_threshold` | `0.0` | Minimum edge weight |
 | `rose2` | `use_voronoi` | `false` | Enable Voronoi room refinement |
 | `rose2` | `output_directory` | `/tmp/rose2_voronoi` | Voronoi image output |
+| `yaml_extractor` | `output_yaml` | empty | Explicit output file path |
+| `yaml_extractor` | `map_yaml` | `rose2_live.yaml` | Source-map path recorded in the YAML and used to derive the default output path |
+| `yaml_extractor` | `features_topic` | `/features_ROSE2` | ROSE2 room-polygon topic |
+| `yaml_extractor` | `rose_features_topic` | `/features_ROSE` | Preferred source for exact map metadata |
+| `yaml_extractor` | `map_topic` | `/map` | Fallback map-metadata topic |
+| `yaml_extractor` | `write_once` | `true` | Stop automatic writes after the first successful export |
+| `yaml_extractor` | `auto_save` | `true` | Write automatically when both inputs arrive |
 
 The launch argument for the ROSE2 `pub_once` parameter is
 `rose2_pub_once:=true`.
