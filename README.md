@@ -13,11 +13,12 @@ ROS 2 QoS settings. The repository is a ROS 2 multi-package repository:
 privat/
 ├── rose2/             # ROSE/ROSE2 algorithm, interfaces and RViz output
 ├── yaml_extractor/    # ROSE2 room-polygon YAML exporter
+├── semantic_map_enricher/ # Assign YOLO objects to Go2's current room
 ├── maps/              # Shared source maps (existing paths remain valid)
 └── requirements-humble.txt
 ```
 
-Keeping the two packages as siblings lets `colcon` discover both packages.
+Keeping the packages as siblings lets `colcon` discover each package.
 Nesting `yaml_extractor` below the old package root would make package
 discovery unreliable because the repository root was itself already a ROS
 package.
@@ -46,7 +47,8 @@ fi
 rosdep update --rosdistro humble
 rosdep install --from-paths src --ignore-src --rosdistro humble -r -y
 python3 -m pip install --user -r src/rose2/requirements-humble.txt
-colcon build --symlink-install --packages-select rose2 yaml_extractor
+colcon build --symlink-install \
+  --packages-select rose2 yaml_extractor semantic_map_enricher
 source install/setup.bash
 ```
 
@@ -169,6 +171,85 @@ grid cells, matching the original `area_cells`/`area_m2` schema. Coordinates
 are transformed according to the OccupancyGrid origin and yaw; unlike an
 image export, the ROS 2 polygon y-coordinate must not be flipped.
 
+## Add YOLO objects to the current Go2 room
+
+`semantic_map_enricher` updates the `objects` list of the room that currently
+contains the Unitree Go2. It uses the official Unitree SLAM relocation output
+by default:
+
+| Direction | Name | Type |
+|---|---|---|
+| Subscribe | `/lio_sam_ros2/mapping/re_location_odometry` | `nav_msgs/msg/Odometry` |
+| Subscribe | `/detected_objects` | `std_msgs/msg/String` |
+| Publish | `/current_segment_id` | `std_msgs/msg/Int32` (`-1` outside all rooms) |
+| Service | `/go2_object_mapper/save` | `std_srvs/srv/Trigger` |
+| Service | `/go2_object_mapper/reload` | `std_srvs/srv/Trigger` |
+
+Unitree's
+[official SLAM example](https://github.com/unitreerobotics/unitree_slam/blob/main/unitree_slam_example/demo_mid360.cpp)
+subscribes to
+`lio_sam_ros2/mapping/re_location_odometry` for the real-time relocated robot
+pose. ROS 2 hides the DDS `rt/` prefix, so the ROS topic begins with `/lio...`.
+The mapping-only pose is `/lio_sam_ros2/mapping/odometry`; it can be selected
+with the launch argument shown below.
+
+Run the node with the YAML previously created by `yaml_extractor`:
+
+```bash
+ros2 launch semantic_map_enricher go2_semantic_map.launch.py \
+  yaml_path:=/home/paul/rose2_ws/src/rose2/maps/my_map_segments_from_rose2.yaml
+```
+
+If object detections use a different topic, select it through the parameter:
+
+```bash
+ros2 launch semantic_map_enricher go2_semantic_map.launch.py \
+  yaml_path:=/absolute/path/to/my_map_segments_from_rose2.yaml \
+  detected_objects_topic:=/my_yolo/detected_objects
+```
+
+For enrichment while the Go2 is still mapping instead of relocating:
+
+```bash
+ros2 launch semantic_map_enricher go2_semantic_map.launch.py \
+  yaml_path:=/absolute/path/to/my_map_segments_from_rose2.yaml \
+  pose_topic:=/lio_sam_ros2/mapping/odometry
+```
+
+The YOLO adapter must publish `std_msgs/msg/String`. The node accepts a single
+label, comma-separated labels, a YAML/JSON list, or a detection dictionary:
+
+```text
+chair
+chair, table
+["chair", "dining table"]
+{"detections": [{"class_name": "chair"}, {"label": "table"}]}
+```
+
+Objects are stored as a real YAML list and deduplicated case-insensitively:
+
+```yaml
+segments:
+  - id: 1
+    polygon_m: [[...], [...], [...]]
+    room_name: unknown
+    objects:
+      - chair
+      - dining table
+```
+
+Room assignment deliberately uses only `polygon_m` (or `corners_m` as a
+fallback). There is no nearest-centre fallback, so detections made in an
+unsegmented doorway or outside the map do not contaminate a nearby room. If
+the odometry frame is not `map`, the node transforms the pose through TF.
+
+On every room transition the in-memory detection history is cleared. A pose
+callback never writes the last object message: only a newly received YOLO
+message can modify the current room. Therefore objects from the old room are
+not copied merely because the Go2 crosses a room boundary. Object lists
+already stored in previously visited rooms remain in the YAML. Writes are
+atomic, so an interrupted save cannot leave a truncated map file.
+
 ## Parameters
 
 Parameters can be supplied through the launch file or directly with
@@ -192,6 +273,15 @@ Parameters can be supplied through the launch file or directly with
 | `yaml_extractor` | `map_topic` | `/map` | Fallback map-metadata topic |
 | `yaml_extractor` | `write_once` | `true` | Stop automatic writes after the first successful export |
 | `yaml_extractor` | `auto_save` | `true` | Write automatically when both inputs arrive |
+| `go2_object_mapper` | `yaml_path` | empty | Existing ROSE2 semantic YAML to update |
+| `go2_object_mapper` | `pose_topic` | `/lio_sam_ros2/mapping/re_location_odometry` | Unitree relocation odometry |
+| `go2_object_mapper` | `detected_objects_topic` | `/detected_objects` | YOLO labels as `std_msgs/msg/String` |
+| `go2_object_mapper` | `segment_id_topic` | `/current_segment_id` | Current room ID; `-1` means outside |
+| `go2_object_mapper` | `map_frame` | `map` | Coordinate frame used by `polygon_m` |
+| `go2_object_mapper` | `transform_pose_to_map` | `true` | Transform non-map odometry through TF |
+| `go2_object_mapper` | `tf_timeout_sec` | `0.2` | Maximum TF lookup duration |
+| `go2_object_mapper` | `max_pose_age_sec` | `2.0` | Reject detections without a recent pose |
+| `go2_object_mapper` | `auto_save` | `true` | Save after new labels are added |
 
 The launch argument for the ROSE2 `pub_once` parameter is
 `rose2_pub_once:=true`.
