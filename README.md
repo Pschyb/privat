@@ -181,6 +181,7 @@ by default:
 |---|---|---|
 | Subscribe | `/lio_sam_ros2/mapping/re_location_odometry` | `nav_msgs/msg/Odometry` |
 | Subscribe | `/detected_objects` | `std_msgs/msg/String` |
+| Subscribe | `/$ROBOT_NS/$ROBOT_NS/aligned_depth_to_color/image_raw` | `sensor_msgs/msg/Image` |
 | Publish | `/current_segment_id` | `std_msgs/msg/Int32` (`-1` outside all rooms) |
 | Service | `/go2_object_mapper/save` | `std_srvs/srv/Trigger` |
 | Service | `/go2_object_mapper/reload` | `std_srvs/srv/Trigger` |
@@ -197,8 +198,40 @@ Run the node with the YAML previously created by `yaml_extractor`:
 
 ```bash
 ros2 launch semantic_map_enricher go2_semantic_map.launch.py \
-  yaml_path:=/home/paul/rose2_ws/src/rose2/maps/my_map_segments_from_rose2.yaml
+  yaml_path:=/home/paul/rose2_ws/src/rose2/maps/my_map_segments_from_rose2.yaml \
+  min_object_distance_m:=0.2 \
+  max_object_distance_m:=3.0
 ```
+
+The distance filter is enabled by default. With the supplied Go2 RealSense
+launch file and its default `ROBOT_NS=go2_unit_001`, the aligned depth topic is
+expected at:
+
+```text
+/go2_unit_001/go2_unit_001/aligned_depth_to_color/image_raw
+```
+
+Verify the actual name on the robot and override it if necessary:
+
+```bash
+ros2 topic list | grep aligned_depth_to_color
+
+ros2 launch semantic_map_enricher go2_semantic_map.launch.py \
+  yaml_path:=/absolute/path/to/my_map_segments_from_rose2.yaml \
+  depth_image_topic:=/actual/aligned_depth_to_color/image_raw
+```
+
+The D435i launch must enable color-aligned depth. In the supplied RealSense
+launch file, change these defaults or pass the equivalent launch arguments:
+
+```python
+{"name": "enable_sync", "default": "true", "description": ""},
+{"name": "align_depth.enable", "default": "true", "description": ""},
+```
+
+The aligned stream is required because YOLO bounding boxes use color-image
+pixel coordinates. Raw `/depth/image_rect_raw` pixels do not describe the
+same rays and are therefore deliberately not used by the enricher.
 
 If object detections use a different topic, select it through the parameter:
 
@@ -216,14 +249,44 @@ ros2 launch semantic_map_enricher go2_semantic_map.launch.py \
   pose_topic:=/lio_sam_ros2/mapping/odometry
 ```
 
-The YOLO adapter must publish `std_msgs/msg/String`. The node accepts a single
-label, comma-separated labels, a YAML/JSON list, or a detection dictionary:
+The YOLO adapter must publish `std_msgs/msg/String` containing JSON or YAML.
+While the distance filter is enabled, each detection requires a label and a
+pixel bounding box in the color image:
 
-```text
-chair
-chair, table
-["chair", "dining table"]
-{"detections": [{"class_name": "chair"}, {"label": "table"}]}
+```json
+{
+  "detections": [
+    {
+      "label": "chair",
+      "confidence": 0.91,
+      "bbox": [120, 80, 310, 460]
+    },
+    {
+      "class_name": "dining table",
+      "bbox": {
+        "x_min": 330,
+        "y_min": 160,
+        "x_max": 620,
+        "y_max": 470
+      }
+    }
+  ]
+}
+```
+
+Bounding-box coordinates are `[x_min, y_min, x_max, y_max]` in pixels, based
+on the same color frame given to YOLO. For every box, the node takes the median
+of valid depth pixels in its central 50 percent. The object is written only if
+that distance is inside the inclusive configured range. A single invalid
+centre pixel therefore does not discard an otherwise valid detection.
+
+Legacy label-only payloads remain supported only when the filter is explicitly
+disabled:
+
+```bash
+ros2 launch semantic_map_enricher go2_semantic_map.launch.py \
+  yaml_path:=/absolute/path/to/my_map_segments_from_rose2.yaml \
+  distance_filter_enabled:=false
 ```
 
 Objects are stored as a real YAML list and deduplicated case-insensitively:
@@ -282,6 +345,13 @@ Parameters can be supplied through the launch file or directly with
 | `go2_object_mapper` | `tf_timeout_sec` | `0.2` | Maximum TF lookup duration |
 | `go2_object_mapper` | `max_pose_age_sec` | `2.0` | Reject detections without a recent pose |
 | `go2_object_mapper` | `auto_save` | `true` | Save after new labels are added |
+| `go2_object_mapper` | `distance_filter_enabled` | `true` | Require a valid D435i range measurement for every object |
+| `go2_object_mapper` | `depth_image_topic` | `/$ROBOT_NS/$ROBOT_NS/aligned_depth_to_color/image_raw` | Color-aligned D435i depth image |
+| `go2_object_mapper` | `min_object_distance_m` | `0.2` | Inclusive minimum accepted object distance |
+| `go2_object_mapper` | `max_object_distance_m` | `3.0` | Inclusive maximum accepted object distance |
+| `go2_object_mapper` | `max_depth_age_sec` | `0.5` | Maximum age of the latest depth frame when a detection arrives |
+| `go2_object_mapper` | `depth_roi_fraction` | `0.5` | Central fraction of each bounding box used for depth measurement |
+| `go2_object_mapper` | `min_valid_depth_pixels` | `20` | Minimum number of valid pixels required for a distance |
 
 The launch argument for the ROSE2 `pub_once` parameter is
 `rose2_pub_once:=true`.
